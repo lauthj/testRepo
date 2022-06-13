@@ -1,0 +1,227 @@
+# Title:    Retrieve Data from WebAdMIT API
+# Language: Python 3.7
+# Author:   Greg Martin
+# Date:     6/14/2019
+# Contact:  gmartin@liaisonedu.com
+
+# Prepare Environment
+# Make sure you have all the necessary libraries to interact with the API and access target directories
+import requests  # make http requests, including API calls
+from beautifultable import BeautifulTable   # present tables in output to easily review API responses
+import time  # pause in between file generation status checks
+import os   # find local directories
+
+# WebAdMIT API Key
+# First, you’ll need to get an API key from WebAdMIT.
+# Log in to WebAdMIT and click on the “Account” link in the top righthand corner of the screen.
+# Once there, click the “Edit My Account” button.
+# About halfway down the next screen is a section called “API Key”.
+# If you don’t already have an API key, click the “Generate New Key” button.
+# If you do have a key, click “Show Key”.
+# Record the alphanumeric string displayed here –
+# you’ll need to include with every call you make to the WebAdMIT API.
+
+apiKey = "1234567890abcdef1234567890abcdef"
+
+# Root URLs
+# The root URL for your API calls depends on your CAS.
+# The root for all API calls is https://DOMAIN.webadmit.org.
+# DOMAIN is your organization domain name.
+# The default DOMAIN is api (https://api.webadmit.org).
+# Contact Liaison customer service if you’re unsure of which root URL to use
+
+rootUrl = "https://api.webadmit.org"
+
+# Local Save Directory
+# Choose where you want to download the export file to.
+# Remember the file format is determined when creating the export in WebAdMIT.
+# The filename will match the name of the WebAdMIT export and will be of the selected file type.
+
+saveDir = os.getcwd()  # this is the directory where this script lives
+
+# Runtime Timestamp
+# Set a timestamp to be use in filenames to more clearly identify the results of script operations
+
+now = datetime.now()
+runtimestamp = str(now.year) + "-" + str(now.month) + "-" + str(now.day) + "_" + str(now.hour) + "-" + str(now.minute)
+
+
+# Define a function for interacting with the WebAdMIT API
+def WebAdMITAPI(rootUrl=rootUrl, endpoint="/api/v1/user_identities/", requestType="GET", apiKey=apiKey,
+                requestBody={}, bodyJson=False):
+    """
+    General function to interact with the WebAdMIT API. This framework can accommodate most endpoints.
+    User will need to parse response object for desired information.
+    :param rootUrl: root URL for your CAS's API
+    :param endpoint: API endpoint to call
+    :param requestType: http request type to make
+    :param apiKey: WebAdMIT API Key
+    :param requestBody: http request payload in dictionary/JSON format
+    :param bodyJson: Boolean param indicating whether the header of the http request should specify the body as JSON
+    :return: JSON object from http response
+    """
+    requestBody = str(requestBody).replace("'", '"').replace('"true"', 'true').replace('"false"', 'false')
+    if bodyJson:
+        requestHeaders = {
+            'x-api-key': apiKey
+            , 'Content-Type': 'application/json'
+        }
+    else:
+        requestHeaders = {
+            'x-api-key': apiKey
+        }
+    responseJson = requests.request(requestType, rootUrl+endpoint, headers=requestHeaders, data=requestBody).json()
+    return responseJson
+
+
+# Define a function to express JSON strings as tables
+def Tabular(listOfDicts):
+    """
+    Present lengthy JSON string in tabular format for ease of review.
+    :param listOfDicts: JSON string from http response; should be a list of dictionaries
+    :return: tabular format of JSON string
+    """
+    try:
+        table = BeautifulTable()
+        table.column_headers = list(listOfDicts[0].keys())
+        end = len(listOfDicts)
+        for i in range(0, end):
+            table.insert_row(i, listOfDicts[i].values())
+        return table
+    except:
+        listOfDicts = [listOfDicts]
+        table = BeautifulTable()
+        table.column_headers = list(listOfDicts[0].keys())
+        end = len(listOfDicts)
+        for i in range(0, end):
+            table.insert_row(i, listOfDicts[i].values())
+        return table
+
+
+# Step 1: Select the User Identity
+# Pull down all user identities accessible to the user with the “User Identity List” endpoint
+# (GET /api/v1/user_identities
+# https://liaison-intl.github.io/user_identity.html).
+# Each user identity corresponds to a specific combination of cycle, association, and organization.
+# Users frequently have more than one user identity, especially when there’s more than one CAS on campus.
+# For example, a user will have one user identity for accessing CASPA 2018-2019 data,
+# and a different one for accessing PTCAS 2018-2019 data.
+# Think about which applicants you’re interested in and select the appropriate user identity –
+# you’ll use the “id” for this user identity to retrieve the data.
+
+# Construct the url to access the "User Identity List" endpoint
+userIdentityEndpoint = "/api/v1/user_identities/"
+# Make the request and store the response
+userIdentities = WebAdMITAPI(rootUrl=rootUrl, endpoint="/api/v1/user_identities/", apiKey=apiKey)["user_identities"]
+# Present the response in a table for review
+print(Tabular(userIdentities))
+# Select the user identity to be used going forward
+userIdentityId = 123456789  # enter the selected user identity ID here
+
+# Step 2: Select the Export
+# Now that you’ve chosen the appropriate user identity, you’ll need to pick the export you want to run.
+# Pull down a list of all exports available to the selected user identity using the
+# “Export/Report List” endpoint (GET /api/v1/user_identities/:user_identity_id/exports
+# https://liaison-intl.github.io/export_by_user_identity.html).
+# Identify the appropriate export using the “name”, “list_type”, and “format” fields returned in the response.
+# You’ll use the “id” – the export ID – field from the response to generate an export file.
+
+# Construct the url to access the “Export/Report List” endpoint
+exportListEndpoint = "/api/v1/user_identities/" + str(userIdentityId) + "/exports"
+# Make the request and store the response
+exports = WebAdMITAPI(rootUrl=rootUrl, endpoint=exportListEndpoint, apiKey=apiKey)["exports"]
+# Present the response in a table for review
+print(Tabular(exports))
+# Select the export to be generated
+exportId = 123456789   # enter the selected export ID
+
+# Step 3: Generate an Export File
+# With the user identity and export chosen, you’re ready to generate an export file.
+# Make a call to the “Export/Report Files (initiate a run)” endpoint
+# (POST /api/v1/user_identities/:user_identity_id/exports/:export_id/export_files
+# https://liaison-intl.github.io/export_files.html).
+# This call triggers the generation of the selected export.
+# The export file will include all the fields selected when building the export for all the records
+# included in the chosen list.
+# The response to this call contains an important ID for the export file you’ve triggered – “id”.
+# You’ll need this export file ID to check on the status of the file generation.
+
+# Construct the url to access the “Export/Report Files (initiate a run)” endpoint
+exportGenEndpoint = "/api/v1/user_identities/" + str(userIdentityId) + "/exports/" + str(exportId) + "/export_files"
+# Make the request and store the response
+exportGen = WebAdMITAPI(rootUrl=rootUrl, endpoint=exportGenEndpoint, requestType="POST", apiKey=apiKey)["export_files"]
+# Present the response in a table for review
+print(Tabular(exportGen))
+# Store the export file ID for later use - only one row possible in response, so no need to manually set this variable
+exportFileId = exportGen[0]["id"]
+
+# Step 4: Check to See if the Export File is Ready
+# Now that the export file is being generated, you’ll need to keep an eye on it to find out when it’s ready to download.
+# Exports that include a lot of fields or that have lists that include a lot of applications can take
+# a long time to generate.
+# You’ll want to make regular calls to the “Export/Report Files (check status) Show” endpoint
+# (GET /api/v1/exports/:export_id/export_files/:export_file_id
+# https://liaison-intl.github.io/export_files_check.html) to determine when the export file is ready for download.
+# When the value in the “status” field of the response to this call is “Available”, the file is ready
+# (possible “status” values are "Initializing", "Queued", "In Progress", "Available",
+# "Success With Errors", "Empty List", and "Failed").
+# The response to this status check call includes another important term: “download_url”.
+# The value in this field is the URL where the generated export file can be downloaded.
+
+# Construct the url to access the “Export/Report Files (check status) Show” endpoint
+exportStatusEndpoint = "/api/v1/exports/" + str(exportId) + "/export_files/" + str(exportFileId)
+# Make the request and store the response
+exportStatus = WebAdMITAPI(rootUrl=rootUrl, endpoint=exportStatusEndpoint, apiKey=apiKey)["export_files"]
+# Check initial status of export file generation and display
+status = exportStatus["status"]
+i = 1
+print("Attempt " + str(i) + ":\t\t" + status)
+# Repeatedly check the status of the export file generation until it has completed
+while not(status in ["Available", "Success With Errors", "Empty List", "Failed"]):
+    time.sleep(5)
+    i += 1
+    # Check status again
+    exportStatus = WebAdMITAPI(rootUrl=rootUrl, endpoint=exportStatusEndpoint, apiKey=apiKey)["export_files"]
+    # Store most recent status and display
+    status = exportStatus["status"]
+    print("Attempt " + str(i) + ":\t\t" + status)
+# When export file generation is complete, present the response in a table for review
+print(Tabular(exportStatus))
+# Check to see if the export file was successfully generated or not
+if status in ["Success With Errors", "Empty List", "Failed"]:
+    # If export file failed to generate successfully, exit program
+    print("Export generation not successful\rExiting program")
+    time.sleep(30)
+    exit()
+else:
+    # If export file generated successfully, prepare to download
+    downloadUrl = exportStatus["download_url"]  # store the download URL for later use
+
+# Step 5: Retrieve the Export File
+# Once your export file is ready, you’ll want to retrieve it so that you can load to your local systems.
+# Take the “download_url” value from the status check call (see above) and make a GET call to that URL,
+# saving the output to the desired local directory.
+
+# Make the download request to the download URL provided in the check status call
+downloadResp = requests.request("GET", downloadUrl)
+# Gather metadata about the file retrieved
+downloadHeaders = downloadResp.headers
+filetype = downloadHeaders["content-type"]
+filename = downloadHeaders["content-disposition"].split('"')[1] + "_" + runtimestamp
+# Save the download file to the desired save directory with the filename provided by WebAdMIT
+open(saveDir + "/" + filename, 'wb').write(downloadResp.content)
+
+# Step 6: Load to Local Systems (not demonstrated)
+# Now that you have the export file on hand, consider whether the file format, field headers, and field values
+# need to be transformed to meet the requirements of your local systems.
+# For example, your local system may only accept “|” delimited files, so you’d need to convert the WebAdMIT export file
+# to match that format. Your system may require that fields have particular names: for instance, last name might need
+# to be called “lname” instead of “last_name”. Finally, your system may only be able to accommodate certain field
+# values: for example, “M” and “F” instead of “Male” and “Female”.
+
+# Once your file and its contents are formatted correctly, you’ll want to load the file to your local systems.
+# Each institution has its own processes for loading data. You may be able to schedule a job that picks up files
+# from a certain location and loads them to your SIS. You may be able to deliver files to a SFTP directory, from where
+# they will be automatically retrieved and loaded. You may have to manually run a process through your SIS or CRM
+# interface to import each file. You may be able to load data programmatically with direct access to the database
+# for your local system, in which case you may want to read the export file into an object and load it from there.
